@@ -74,7 +74,8 @@ pub(crate) fn probe_level() -> u8 {
 /// reserved, which the host refuses, and what a view shows changes when
 /// the title maps pages.
 ///
-/// What it assumes, for 2: nothing reads title memory that a submission
+/// What it assumes, for 2 (enforced: with late wait or the relay on, 2 is
+/// lowered to 1): nothing reads title memory that a submission
 /// not yet run writes through such a buffer. With every submission waited
 /// for (the default) that holds; with `VICTORY_LATE_WAIT` it does not,
 /// since the flights' rules know shader writes only by the ranges copies
@@ -87,7 +88,17 @@ pub(crate) fn probe_level() -> u8 {
 /// call before such a call once it takes them over.
 pub(crate) fn level() -> u8 {
     static LEVEL: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
-    *LEVEL.get_or_init(|| std::env::var("VICTORY_INPLACE").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(0))
+    *LEVEL.get_or_init(|| {
+        let asked: u8 = std::env::var("VICTORY_INPLACE").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+        // Stage 2 assumes every submission is waited for; late wait (and
+        // the relay, which turns it on) breaks that. Fall back to stage 1
+        // rather than leave the rule to the reader of this comment.
+        if asked >= 2 && crate::host::late() {
+            tracing::warn!("VICTORY_INPLACE={asked} cannot be combined with VICTORY_LATE_WAIT or VICTORY_RELAY: using stage 1");
+            return 1;
+        }
+        asked
+    })
 }
 
 /// The most title memory in place at once, in bytes
